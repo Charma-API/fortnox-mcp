@@ -66,6 +66,7 @@ const DEFAULT_FORTNOX_SCOPES = [
   "supplier",
   "supplierinvoice",
   "bookkeeping",
+  "archive",
 ];
 
 export const FORTNOX_SCOPES: string[] = process.env.FORTNOX_SCOPES?.trim()
