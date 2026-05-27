@@ -15,16 +15,43 @@ import {
   getAgeBucket,
   type AgeBucket
 } from "../services/dateHelpers.js";
+import { getCurrentUserId } from "../auth/context.js";
 import {
   ListSupplierInvoicesSchema,
   GetSupplierInvoiceSchema,
   ApproveSupplierInvoiceSchema,
+  ApproveSupplierInvoiceBookkeepSchema,
+  CancelSupplierInvoiceSchema,
   PayablesReportSchema,
   type ListSupplierInvoicesInput,
   type GetSupplierInvoiceInput,
   type ApproveSupplierInvoiceInput,
+  type ApproveSupplierInvoiceBookkeepInput,
+  type CancelSupplierInvoiceInput,
   type PayablesReportInput
 } from "../schemas/supplierInvoices.js";
+
+/**
+ * Audit log for write operations on supplier invoices.
+ *
+ * Writes a structured line to stderr which Vercel captures and exposes in
+ * the project's runtime logs. Intentionally minimal — for a richer audit
+ * trail (queryable, with explicit user intent), swap this for a Redis
+ * append or a dedicated logging service.
+ */
+function auditWrite(operation: string, givenNumber: string, extra: Record<string, unknown> = {}): void {
+  const userId = (() => {
+    try { return getCurrentUserId(); } catch { return undefined; }
+  })();
+  console.error(JSON.stringify({
+    audit: "supplier_invoice_write",
+    operation,
+    given_number: givenNumber,
+    user_id: userId ?? null,
+    timestamp: new Date().toISOString(),
+    ...extra
+  }));
+}
 
 // API response types
 interface FortnoxSupplierInvoiceRow {
@@ -462,31 +489,41 @@ Returns:
     }
   );
 
-  // Approve supplier invoice for payment
+  // Approve supplier invoice for payment (2nd-stage attest)
   server.registerTool(
     "fortnox_approve_supplier_invoice",
     {
       title: "Approve Supplier Invoice for Payment",
-      description: `Approve a supplier invoice for payment.
+      description: `⚠️ WRITE OPERATION — approves a supplier invoice for payment in Fortnox (2nd-stage attest).
 
-This approves the invoice and marks it ready for payment processing.
+This corresponds to "godkänn för betalning" in the Fortnox UI and marks the
+invoice ready for the bank payment file. It does NOT create bookkeeping
+entries (use fortnox_approve_supplier_invoice_bookkeep for that) and does
+NOT actually move money — payment happens through your bank.
+
+Use only with explicit per-invoice human authorization. Do NOT batch-approve
+without confirmation.
 
 Args:
   - given_number (string): The supplier invoice given number to approve (required)
   - response_format ('markdown' | 'json'): Output format
 
 Returns:
-  Confirmation that the invoice has been approved for payment.`,
+  Confirmation that the invoice has been approved for payment.
+
+Audit: each call is logged to stderr (captured by Vercel logs) with the
+authenticated user id and timestamp.`,
       inputSchema: ApproveSupplierInvoiceSchema,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
         openWorldHint: true
       }
     },
     async (params: ApproveSupplierInvoiceInput) => {
       try {
+        auditWrite("approve_payment", params.given_number);
         const response = await fortnoxRequest<SupplierInvoiceResponse>(
           `/3/supplierinvoices/${encodeURIComponent(params.given_number)}/approvalpayment`,
           "PUT"
@@ -511,6 +548,153 @@ Returns:
             `**Supplier**: ${invoice.SupplierName || invoice.SupplierNumber}\n` +
             `**Total**: ${formatMoney(invoice.Total, invoice.Currency)}\n\n` +
             `The invoice is now marked as pending payment.`;
+        }
+
+        return buildToolResponse(textContent, output);
+      } catch (error) {
+        return buildErrorResponse(error);
+      }
+    }
+  );
+
+  // Approve supplier invoice for bookkeeping (1st-stage attest)
+  server.registerTool(
+    "fortnox_approve_supplier_invoice_bookkeep",
+    {
+      title: "Approve Supplier Invoice for Bookkeeping (1st-stage attest)",
+      description: `⚠️ WRITE OPERATION — approves a supplier invoice for bookkeeping in Fortnox (1st-stage attest).
+
+This corresponds to "godkänn för bokföring" / "attest" in the Fortnox UI.
+It signals that the invoice has been reviewed and is OK to be bookkept,
+but does NOT actually create the bookkeeping voucher — that is a separate
+step performed in Fortnox UI by an authorized user. The tool deliberately
+does not expose the bookkeep step (Fortnox endpoint /bookkeep) so the AI
+cannot create vouchers on its own.
+
+Typical workflow:
+  1. Review invoice details (fortnox_get_supplier_invoice + _list_files)
+  2. Confirm with the human that it looks correct
+  3. Call this tool — invoice is marked attested for bookkeeping
+  4. Human (or other authorized user) finalises bookkeeping in Fortnox UI
+
+Do NOT call this in batches without per-invoice confirmation.
+
+Args:
+  - given_number (string): The supplier invoice given number (required)
+  - response_format ('markdown' | 'json'): Output format
+
+Audit: each call is logged to stderr with the authenticated user id and timestamp.`,
+      inputSchema: ApproveSupplierInvoiceBookkeepSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (params: ApproveSupplierInvoiceBookkeepInput) => {
+      try {
+        auditWrite("approve_bookkeep", params.given_number);
+        const response = await fortnoxRequest<SupplierInvoiceResponse>(
+          `/3/supplierinvoices/${encodeURIComponent(params.given_number)}/approvalbookkeep`,
+          "PUT"
+        );
+        const invoice = response.SupplierInvoice;
+
+        const output = {
+          success: true,
+          message: `Supplier invoice #${invoice.GivenNumber} has been approved for bookkeeping`,
+          given_number: invoice.GivenNumber,
+          supplier_name: invoice.SupplierName || null,
+          total: invoice.Total || 0,
+          next_step: "Finalise bookkeeping in Fortnox UI (this tool does not create vouchers)"
+        };
+
+        let textContent: string;
+        if (params.response_format === ResponseFormat.JSON) {
+          textContent = JSON.stringify(output, null, 2);
+        } else {
+          textContent = `# Supplier Invoice Approved for Bookkeeping\n\n` +
+            `Supplier invoice **#${invoice.GivenNumber}** has been approved for bookkeeping.\n\n` +
+            `**Supplier**: ${invoice.SupplierName || invoice.SupplierNumber}\n` +
+            `**Total**: ${formatMoney(invoice.Total, invoice.Currency)}\n\n` +
+            `*Next step: finalise bookkeeping in the Fortnox UI — this tool does not create vouchers.*`;
+        }
+
+        return buildToolResponse(textContent, output);
+      } catch (error) {
+        return buildErrorResponse(error);
+      }
+    }
+  );
+
+  // Cancel (makulera) supplier invoice
+  server.registerTool(
+    "fortnox_cancel_supplier_invoice",
+    {
+      title: "Cancel (makulera) Supplier Invoice",
+      description: `⚠️ DESTRUCTIVE OPERATION — cancels (makulerar) a supplier invoice in Fortnox.
+
+This changes the invoice status to Cancelled. If the invoice was already
+bookkept, Fortnox will create reversal entries automatically. Cancellation
+in Fortnox is typically reversible (a cancelled invoice can be reopened)
+but you should treat this as destructive in workflow terms.
+
+Refuses unless \`confirm=true\` is passed — this is an explicit safety gate
+so the LLM cannot accidentally cancel an invoice. Always confirm with the
+human before passing confirm=true.
+
+Args:
+  - given_number (string): The supplier invoice given number to cancel (required)
+  - confirm (true): Must be literally true to authorise the cancellation
+  - reason (string): Optional human-readable reason — recorded in the audit log
+  - response_format ('markdown' | 'json'): Output format
+
+Audit: each call is logged to stderr with the authenticated user id, the
+reason if provided, and timestamp.`,
+      inputSchema: CancelSupplierInvoiceSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (params: CancelSupplierInvoiceInput) => {
+      try {
+        // Defence in depth — schema already requires literal true, but verify.
+        if (params.confirm !== true) {
+          return buildErrorResponse(
+            new Error("Cancellation refused: confirm must be true. This is a destructive operation.")
+          );
+        }
+        auditWrite("cancel", params.given_number, { reason: params.reason ?? null });
+        const response = await fortnoxRequest<SupplierInvoiceResponse>(
+          `/3/supplierinvoices/${encodeURIComponent(params.given_number)}/cancel`,
+          "PUT"
+        );
+        const invoice = response.SupplierInvoice;
+
+        const output = {
+          success: true,
+          message: `Supplier invoice #${invoice.GivenNumber} has been cancelled`,
+          given_number: invoice.GivenNumber,
+          supplier_name: invoice.SupplierName || null,
+          total: invoice.Total || 0,
+          cancelled: invoice.Cancelled ?? true,
+          reason: params.reason ?? null
+        };
+
+        let textContent: string;
+        if (params.response_format === ResponseFormat.JSON) {
+          textContent = JSON.stringify(output, null, 2);
+        } else {
+          textContent = `# Supplier Invoice Cancelled\n\n` +
+            `Supplier invoice **#${invoice.GivenNumber}** has been cancelled (makulerad).\n\n` +
+            `**Supplier**: ${invoice.SupplierName || invoice.SupplierNumber}\n` +
+            `**Total**: ${formatMoney(invoice.Total, invoice.Currency)}\n` +
+            (params.reason ? `**Reason**: ${params.reason}\n` : "") +
+            `\n*If the invoice was bookkept, Fortnox has created reversal entries automatically.*`;
         }
 
         return buildToolResponse(textContent, output);

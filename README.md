@@ -113,11 +113,17 @@ That's it! You can now ask Claude to manage your Fortnox invoices, customers, an
 ### Supplier Invoice Management
 - `fortnox_list_supplier_invoices` - List supplier invoices with filtering
 - `fortnox_get_supplier_invoice` - Get supplier invoice details (including the linked bookkeeping voucher)
-- `fortnox_approve_supplier_invoice` - Approve supplier invoice for payment
+- `fortnox_approve_supplier_invoice` - Approve supplier invoice for payment (2nd-stage attest, ⚠️ write)
+- `fortnox_approve_supplier_invoice_bookkeep` - Approve supplier invoice for bookkeeping (1st-stage attest, ⚠️ write)
+- `fortnox_cancel_supplier_invoice` - Cancel/makulera a supplier invoice (⚠️ destructive, requires `confirm=true`)
 - `fortnox_list_supplier_invoice_files` - List PDF/archive files attached to a supplier invoice
 - `fortnox_download_archive_file` - Download an archive file (PDF, etc) as a base64 resource (requires `archive` scope)
 - `fortnox_list_supplier_invoice_payments` - List recorded payments on supplier invoices (accounts payable settlements)
 - `fortnox_get_supplier_invoice_payment` - Get full details for a single supplier invoice payment
+
+Note: write operations against supplier invoices are logged to stderr (captured
+by Vercel runtime logs) with the authenticated user id and timestamp. Use with
+explicit per-invoice human confirmation — never batch-approve.
 - `fortnox_payables_report` - Get accounts payable aging report
 
 ### Order Management
