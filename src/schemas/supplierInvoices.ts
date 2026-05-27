@@ -103,6 +103,43 @@ export const ApproveSupplierInvoiceSchema = z.object({
 export type ApproveSupplierInvoiceInput = z.infer<typeof ApproveSupplierInvoiceSchema>;
 
 /**
+ * Schema for approving a supplier invoice for bookkeeping (1st-stage attest)
+ */
+export const ApproveSupplierInvoiceBookkeepSchema = z.object({
+  given_number: z.string()
+    .min(1)
+    .describe("The supplier invoice given number to approve for bookkeeping"),
+  response_format: z.nativeEnum(ResponseFormat)
+    .default(ResponseFormat.MARKDOWN)
+    .describe("Output format: 'markdown' or 'json'")
+}).strict();
+
+export type ApproveSupplierInvoiceBookkeepInput = z.infer<typeof ApproveSupplierInvoiceBookkeepSchema>;
+
+/**
+ * Schema for cancelling (makulera) a supplier invoice
+ *
+ * Requires confirm=true as an explicit safety gate because this changes the
+ * invoice status to Cancelled and reverses any related bookkeeping in Fortnox.
+ */
+export const CancelSupplierInvoiceSchema = z.object({
+  given_number: z.string()
+    .min(1)
+    .describe("The supplier invoice given number to cancel"),
+  confirm: z.literal(true)
+    .describe("Must be set to true to confirm this destructive operation. The tool refuses without it."),
+  reason: z.string()
+    .max(500)
+    .optional()
+    .describe("Optional reason for the cancellation — included in the audit log"),
+  response_format: z.nativeEnum(ResponseFormat)
+    .default(ResponseFormat.MARKDOWN)
+    .describe("Output format: 'markdown' or 'json'")
+}).strict();
+
+export type CancelSupplierInvoiceInput = z.infer<typeof CancelSupplierInvoiceSchema>;
+
+/**
  * Schema for payables aging report
  */
 export const PayablesReportSchema = z.object({
