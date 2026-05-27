@@ -41,6 +41,14 @@ interface ArchiveFileDownloadOutput {
   mime_type: string;
   size_bytes: number;
   encoding: "base64";
+  /**
+   * Base64-encoded file bytes. Embedded in structuredContent rather than as an
+   * MCP `resource` content block because Claude clients currently route non-
+   * image resources through image-handling and drop the blob with "could not
+   * process image" errors. Returning base64 inline keeps the bytes reachable
+   * to the calling agent for decoding (e.g. via Bash + `base64 -d`).
+   */
+  base64: string;
   [key: string]: unknown;
 }
 
@@ -136,7 +144,7 @@ Typical use:
     "fortnox_download_archive_file",
     {
       title: "Download Fortnox Archive File",
-      description: `Download a file from the Fortnox archive by FileId and return it as an embedded base64 resource.
+      description: `Download a file from the Fortnox archive by FileId and return it as base64-encoded bytes.
 
 Use after fortnox_list_supplier_invoice_files to fetch the actual PDF attached
 to a supplier invoice. Works for any file in the Fortnox archive (inbox,
@@ -147,8 +155,10 @@ Args:
   - max_bytes (number): Safety cap; fails rather than returning larger payloads (default 5 MB, max 10 MB)
 
 Returns:
-  An MCP resource with the file's mimeType and the bytes as a base64 blob,
-  plus a structured summary with size and content type.
+  structuredContent: { file_id, mime_type, size_bytes, encoding: "base64", base64: <bytes> }
+
+To decode in a shell:
+  echo "<base64>" | base64 -d > file.pdf
 
 Note: requires the 'archive' Fortnox scope on the integration.`,
       inputSchema: DownloadArchiveFileSchema,
@@ -179,7 +189,8 @@ Note: requires the 'archive' Fortnox scope on the integration.`,
           file_id: params.file_id,
           mime_type: file.contentType,
           size_bytes: file.contentLength,
-          encoding: "base64"
+          encoding: "base64",
+          base64
         };
 
         return {
@@ -189,15 +200,7 @@ Note: requires the 'archive' Fortnox scope on the integration.`,
               text:
                 `Downloaded file ${params.file_id} ` +
                 `(${file.contentType}, ${file.contentLength.toLocaleString()} bytes). ` +
-                `Embedded as resource blob below.`
-            },
-            {
-              type: "resource" as const,
-              resource: {
-                uri: `fortnox-archive://${params.file_id}`,
-                mimeType: file.contentType,
-                blob: base64
-              }
+                `Bytes available in structuredContent.base64 (base64-encoded).`
             }
           ],
           structuredContent: summary

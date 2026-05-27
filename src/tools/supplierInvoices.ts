@@ -39,6 +39,13 @@ interface FortnoxSupplierInvoiceRow {
   CostCenter?: string;
 }
 
+interface FortnoxSupplierInvoiceVoucherRef {
+  Number?: number;
+  Series?: string;
+  Year?: number;
+  ReferenceType?: string;
+}
+
 interface FortnoxSupplierInvoice {
   GivenNumber: string;
   SupplierNumber: string;
@@ -55,9 +62,14 @@ interface FortnoxSupplierInvoice {
   PaymentPending?: boolean;
   OCR?: string;
   Comments?: string;
+  // Top-level voucher fields — populated on some invoices
   VoucherNumber?: number;
   VoucherSeries?: string;
   VoucherYear?: number;
+  // Vouchers array — populated when an invoice has one or more linked vouchers
+  // (typically a booking voucher and possibly payment vouchers). This is the
+  // field Fortnox actually fills in most cases.
+  Vouchers?: FortnoxSupplierInvoiceVoucherRef[];
   SupplierInvoiceRows?: FortnoxSupplierInvoiceRow[];
   "@url"?: string;
 }
@@ -347,9 +359,15 @@ Returns:
           credit: invoice.Credit ?? false,
           payment_pending: invoice.PaymentPending ?? false,
           comments: invoice.Comments || null,
-          voucher_series: invoice.VoucherSeries || null,
-          voucher_number: invoice.VoucherNumber ?? null,
-          voucher_year: invoice.VoucherYear ?? null,
+          voucher_series: invoice.VoucherSeries || invoice.Vouchers?.[0]?.Series || null,
+          voucher_number: invoice.VoucherNumber ?? invoice.Vouchers?.[0]?.Number ?? null,
+          voucher_year: invoice.VoucherYear ?? invoice.Vouchers?.[0]?.Year ?? null,
+          vouchers: (invoice.Vouchers || []).map((v) => ({
+            series: v.Series || null,
+            number: v.Number ?? null,
+            year: v.Year ?? null,
+            reference_type: v.ReferenceType || null
+          })),
           rows: (invoice.SupplierInvoiceRows || []).map((row) => ({
             article_number: row.ArticleNumber || null,
             account: row.Account || null,
@@ -391,14 +409,32 @@ Returns:
             ""
           ];
 
-          if (invoice.VoucherNumber !== undefined && invoice.VoucherNumber !== null) {
-            lines.push(
-              "## Bookkeeping voucher",
-              `- **Series**: ${invoice.VoucherSeries || "-"}`,
-              `- **Number**: ${invoice.VoucherNumber}`,
-              `- **Year**: ${invoice.VoucherYear ?? "-"}`,
-              ""
-            );
+          const voucherList = [
+            ...(invoice.VoucherNumber !== undefined && invoice.VoucherNumber !== null
+              ? [{ Series: invoice.VoucherSeries, Number: invoice.VoucherNumber, Year: invoice.VoucherYear, ReferenceType: "Booking" as string | undefined }]
+              : []),
+            ...(invoice.Vouchers || [])
+          ];
+          if (voucherList.length > 0) {
+            lines.push("## Bookkeeping voucher(s)", "");
+            if (voucherList.length === 1) {
+              const v = voucherList[0];
+              lines.push(
+                `- **Series**: ${v.Series || "-"}`,
+                `- **Number**: ${v.Number ?? "-"}`,
+                `- **Year**: ${v.Year ?? "-"}`,
+                ""
+              );
+            } else {
+              lines.push("| Series | Number | Year | Type |");
+              lines.push("|--------|--------|------|------|");
+              for (const v of voucherList) {
+                lines.push(
+                  `| ${v.Series || "-"} | ${v.Number ?? "-"} | ${v.Year ?? "-"} | ${v.ReferenceType || "-"} |`
+                );
+              }
+              lines.push("");
+            }
           }
 
           if (invoice.SupplierInvoiceRows && invoice.SupplierInvoiceRows.length > 0) {
