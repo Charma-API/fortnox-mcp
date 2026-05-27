@@ -47,12 +47,27 @@ export function hasFortnoxCredentials(): boolean {
 }
 
 /**
- * Fortnox OAuth scopes required by this MCP server
+ * Fortnox OAuth scopes requested during the authorization flow.
+ *
+ * Configurable via the FORTNOX_SCOPES environment variable
+ * (space-separated list matching Fortnox's OAuth scope vocabulary, e.g.
+ * "supplier supplierinvoice companyinformation bookkeeping").
+ *
+ * Falls back to a default covering the most common tools when unset.
+ *
+ * Note: every scope listed here must also be enabled on the Fortnox
+ * integration in the developer portal (apps.fortnox.se); otherwise
+ * Fortnox rejects the authorization request with "unsupported scope".
  */
-export const FORTNOX_SCOPES = [
+const DEFAULT_FORTNOX_SCOPES = [
   "companyinformation",
   "customer",
   "invoice",
   "supplier",
-  "bookkeeping"
+  "supplierinvoice",
+  "bookkeeping",
 ];
+
+export const FORTNOX_SCOPES: string[] = process.env.FORTNOX_SCOPES?.trim()
+  ? process.env.FORTNOX_SCOPES.trim().split(/\s+/)
+  : DEFAULT_FORTNOX_SCOPES;
