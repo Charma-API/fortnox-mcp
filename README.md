@@ -190,6 +190,7 @@ npm run build
 | `FORTNOX_CLIENT_SECRET` | Yes | Your Fortnox app client secret |
 | `FORTNOX_REFRESH_TOKEN` | Yes | OAuth2 refresh token (only needed for initial setup; automatically persisted after first use) |
 | `FORTNOX_ACCESS_TOKEN` | No | Current access token (auto-refreshed) |
+| `FORTNOX_SCOPES` | No | Space-separated OAuth scopes to request (e.g. `"supplier supplierinvoice companyinformation"`). Defaults to a broad set covering the most common tools. Must match what's enabled on the Fortnox integration in apps.fortnox.se. |
 | `TRANSPORT` | No | `stdio` (default) or `http` |
 | `PORT` | No | HTTP port (default: 3000) |
 
@@ -202,6 +203,7 @@ npm run build
 | `JWT_SECRET` | Yes | Secret for signing JWT tokens |
 | `FORTNOX_CLIENT_ID` | Yes | Your Fortnox app client ID |
 | `FORTNOX_CLIENT_SECRET` | Yes | Your Fortnox app client secret |
+| `FORTNOX_SCOPES` | No | Space-separated OAuth scopes to request (e.g. `"supplier supplierinvoice companyinformation"`). Defaults to a broad set covering the most common tools. Must match what's enabled on the Fortnox integration in apps.fortnox.se. |
 | `UPSTASH_REDIS_REST_URL` | Yes* | Upstash Redis URL for token storage |
 | `UPSTASH_REDIS_REST_TOKEN` | Yes* | Upstash Redis token |
 | `PORT` | No | HTTP port (default: 3000) |
