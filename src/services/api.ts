@@ -92,6 +92,83 @@ export async function fortnoxRequest<T>(
 }
 
 /**
+ * Result of a binary Fortnox API request
+ */
+export interface BinaryResponse {
+  /** Raw response bytes */
+  data: Buffer;
+  /** Content-Type header from the response (e.g. 'application/pdf') */
+  contentType: string;
+  /** Length of `data` in bytes */
+  contentLength: number;
+}
+
+/**
+ * Make an authenticated request to the Fortnox API for binary content
+ * (e.g. PDF files from /3/archive). Uses the same auth and rate-limiter
+ * as fortnoxRequest, but does not assume a JSON response.
+ */
+export async function fortnoxRequestBinary(
+  endpoint: string,
+  params?: Record<string, string | number | boolean | undefined>
+): Promise<BinaryResponse> {
+  await waitForRateLimit();
+
+  const tokenProvider = getTokenProvider();
+  const userId = getCurrentUserId();
+  const accessToken = await tokenProvider.getAccessToken(userId);
+
+  const cleanParams: Record<string, string | number | boolean> = {};
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined) {
+        cleanParams[key] = value;
+      }
+    }
+  }
+
+  const config: AxiosRequestConfig = {
+    method: "GET",
+    url: `${FORTNOX_API_BASE_URL}${endpoint}`,
+    headers: {
+      "Authorization": `Bearer ${accessToken}`,
+      "Accept": "*/*"
+    },
+    responseType: "arraybuffer",
+    // Larger timeout — PDF downloads can be slower than JSON requests
+    timeout: 60000,
+    params: Object.keys(cleanParams).length > 0 ? cleanParams : undefined
+  };
+
+  try {
+    const response = await axios(config);
+    const contentType =
+      (response.headers["content-type"] as string | undefined) ||
+      "application/octet-stream";
+    const data = Buffer.from(response.data as ArrayBuffer);
+    return {
+      data,
+      contentType,
+      contentLength: data.length
+    };
+  } catch (error) {
+    // When responseType is arraybuffer, error payloads are also buffers —
+    // try to decode them as JSON so handleApiError can extract the message.
+    if (error instanceof AxiosError && error.response?.data) {
+      try {
+        const text = Buffer.from(error.response.data as ArrayBuffer).toString(
+          "utf-8"
+        );
+        error.response.data = JSON.parse(text);
+      } catch {
+        // Leave as-is; handleApiError will fall back to generic messaging.
+      }
+    }
+    throw handleApiError(error, endpoint);
+  }
+}
+
+/**
  * Handle API errors with descriptive messages
  */
 export function handleApiError(error: unknown, context?: string): Error {

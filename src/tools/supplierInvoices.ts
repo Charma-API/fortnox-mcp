@@ -55,6 +55,9 @@ interface FortnoxSupplierInvoice {
   PaymentPending?: boolean;
   OCR?: string;
   Comments?: string;
+  VoucherNumber?: number;
+  VoucherSeries?: string;
+  VoucherYear?: number;
   SupplierInvoiceRows?: FortnoxSupplierInvoiceRow[];
   "@url"?: string;
 }
@@ -344,6 +347,9 @@ Returns:
           credit: invoice.Credit ?? false,
           payment_pending: invoice.PaymentPending ?? false,
           comments: invoice.Comments || null,
+          voucher_series: invoice.VoucherSeries || null,
+          voucher_number: invoice.VoucherNumber ?? null,
+          voucher_year: invoice.VoucherYear ?? null,
           rows: (invoice.SupplierInvoiceRows || []).map((row) => ({
             article_number: row.ArticleNumber || null,
             account: row.Account || null,
@@ -384,6 +390,16 @@ Returns:
             `- **Balance**: ${formatMoney(invoice.Balance, invoice.Currency)}`,
             ""
           ];
+
+          if (invoice.VoucherNumber !== undefined && invoice.VoucherNumber !== null) {
+            lines.push(
+              "## Bookkeeping voucher",
+              `- **Series**: ${invoice.VoucherSeries || "-"}`,
+              `- **Number**: ${invoice.VoucherNumber}`,
+              `- **Year**: ${invoice.VoucherYear ?? "-"}`,
+              ""
+            );
+          }
 
           if (invoice.SupplierInvoiceRows && invoice.SupplierInvoiceRows.length > 0) {
             lines.push("## Line Items", "");
